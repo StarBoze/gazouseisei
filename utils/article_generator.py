@@ -32,7 +32,9 @@ class ArticleGenerator:
                             subheadings: List[str],
                             keyword: str,
                             target_audience: str,
-                            section_callback=None) -> Tuple[int, str]:
+                            section_callback=None,
+                            stream: bool = False,
+                            stream_callback=None) -> Tuple[int, str]:
         """
         Generate a single section of the article
         
@@ -82,12 +84,26 @@ class ArticleGenerator:
             """
             
             try:
-                # Call OpenAI API to generate the section
+                # セクションの先頭部分は即時表示用に生成
+                section_header = f"# {heading}\n\n"
+                
+                # ストリーミングコールバック関数
+                async def handle_stream_chunk(chunk: str, full_text: str):
+                    # セクションヘッダーを追加
+                    display_content = section_header + full_text
+                    
+                    if section_callback and stream_callback:
+                        # ストリーミング更新をコールバック
+                        await section_callback(section_index, heading, display_content)
+                
+                # Call OpenAI API to generate the section (with streaming if enabled)
                 response = await self.api_client.call_text_generation_api(
                     prompt=user_prompt,
                     system_prompt=system_prompt,
                     max_tokens=4000,  # GPT-4oの制限内の値（最大4096）
-                    model="gpt-4o"
+                    model="gpt-4o",
+                    stream=stream,
+                    stream_callback=handle_stream_chunk if stream else None
                 )
                 
                 # Extract content from response
@@ -130,11 +146,12 @@ class ArticleGenerator:
                 return section_index, error_section
     
     async def generate_all_sections(self, 
-                                 outline: Dict[str, List[Dict[str, Any]]],
-                                 keyword: str,
-                                 target_audience: str,
-                                 progress_callback=None,
-                                 section_callback=None) -> List[Tuple[int, str]]:
+                             outline: Dict[str, List[Dict[str, Any]]],
+                             keyword: str,
+                             target_audience: str,
+                             progress_callback=None,
+                             section_callback=None,
+                             stream: bool = True) -> List[Tuple[int, str]]:
         """
         Generate all article sections from the outline
         
@@ -157,7 +174,16 @@ class ArticleGenerator:
             
             # Create a task for each section
             task = asyncio.create_task(
-                self.generate_section(i, heading, subheadings, keyword, target_audience, section_callback)
+                self.generate_section(
+                    section_index=i, 
+                    heading=heading, 
+                    subheadings=subheadings, 
+                    keyword=keyword, 
+                    target_audience=target_audience, 
+                    section_callback=section_callback,
+                    stream=stream,  # ストリーミングモードを有効化
+                    stream_callback=True  # ストリーミングコールバック機能を有効化
+                )
             )
             tasks.append(task)
         
