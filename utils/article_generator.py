@@ -31,7 +31,8 @@ class ArticleGenerator:
                             heading: str, 
                             subheadings: List[str],
                             keyword: str,
-                            target_audience: str) -> Tuple[int, str]:
+                            target_audience: str,
+                            section_callback=None) -> Tuple[int, str]:
         """
         Generate a single section of the article
         
@@ -81,25 +82,31 @@ class ArticleGenerator:
             """
             
             try:
-                # Call Claude API to generate the section
-                response = await self.api_client.call_claude_api(
+                # Call OpenAI API to generate the section
+                response = await self.api_client.call_text_generation_api(
                     prompt=user_prompt,
                     system_prompt=system_prompt,
-                    max_tokens=32000  # Request a large response to get substantial content
+                    max_tokens=4000,  # GPT-4oの制限内の値（最大4096）
+                    model="gpt-4o"
                 )
                 
                 # Extract content from response
-                content = response.get('content', [])
-                if not content or not isinstance(content, list):
-                    raise ValueError("Invalid response format from Claude API")
+                choices = response.get('choices', [])
+                if not choices or not isinstance(choices, list):
+                    raise ValueError("Invalid response format from OpenAI API")
                     
-                section_content = content[0].get('text', '')
+                section_content = choices[0].get('message', {}).get('content', '')
                 
                 # Ensure the section ends with the required marker
                 if "<!--END_SECTION-->" not in section_content:
                     section_content += "\n\n<!--END_SECTION-->"
                 
                 logger.info(f"Successfully generated section {section_index + 1} ({len(section_content)} chars)")
+                
+                # コールバックがあれば生成完了を通知
+                if section_callback:
+                    await section_callback(section_index, heading, section_content)
+                    
                 return section_index, section_content
                 
             except Exception as e:
@@ -126,7 +133,8 @@ class ArticleGenerator:
                                  outline: Dict[str, List[Dict[str, Any]]],
                                  keyword: str,
                                  target_audience: str,
-                                 progress_callback=None) -> List[Tuple[int, str]]:
+                                 progress_callback=None,
+                                 section_callback=None) -> List[Tuple[int, str]]:
         """
         Generate all article sections from the outline
         
@@ -149,7 +157,7 @@ class ArticleGenerator:
             
             # Create a task for each section
             task = asyncio.create_task(
-                self.generate_section(i, heading, subheadings, keyword, target_audience)
+                self.generate_section(i, heading, subheadings, keyword, target_audience, section_callback)
             )
             tasks.append(task)
         

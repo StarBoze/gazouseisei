@@ -1,5 +1,5 @@
 """
-API Client for interacting with Claude and OpenAI APIs
+API Client for interacting with OpenAI API
 """
 import os
 import json
@@ -14,84 +14,29 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 class APIClient:
-    def __init__(self, anthropic_api_key: Optional[str] = None, openai_api_key: Optional[str] = None):
+    def __init__(self, openai_api_key: Optional[str] = None):
         """
-        Initialize API client with API keys
+        Initialize API client with OpenAI API key
         
         Args:
-            anthropic_api_key: Claude API key (can also be set via ANTHROPIC_API_KEY env var)
             openai_api_key: OpenAI API key (can also be set via OPENAI_API_KEY env var)
         """
-        self.anthropic_api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         
-        if not self.anthropic_api_key:
-            logger.warning("Anthropic API key not provided. Claude API calls will fail.")
-        
         if not self.openai_api_key:
-            logger.warning("OpenAI API key not provided. OpenAI API calls will fail.")
+            logger.warning("OpenAI API key not provided. API calls will fail.")
     
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=60))
-    async def call_claude_api(self, prompt: str, max_tokens: int = 4000, 
-                           system_prompt: Optional[str] = None) -> Dict[Any, Any]:
+    async def call_text_generation_api(self, prompt: str, max_tokens: int = 4000, 
+                           system_prompt: Optional[str] = None, model: str = "gpt-4o") -> Dict[Any, Any]:
         """
-        Call the Claude API with retry logic for rate limits
+        Call the OpenAI API for text generation with retry logic for rate limits
         
         Args:
-            prompt: The user prompt to send to Claude
+            prompt: The user prompt to send to the model
             max_tokens: Maximum tokens in response
-            system_prompt: Optional system prompt to guide Claude
-            
-        Returns:
-            Dict containing the API response
-        """
-        if not self.anthropic_api_key:
-            raise ValueError("Anthropic API key is required")
-            
-        headers = {
-            "x-api-key": self.anthropic_api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json"
-        }
-        
-        data = {
-            "model": "claude-3-opus-20240229",
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        
-        if system_prompt:
-            data["system"] = system_prompt
-            
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers=headers,
-                    json=data
-                )
-                response.raise_for_status()
-                return response.json()
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                logger.warning("Rate limit exceeded, retrying...")
-                raise
-            logger.error(f"HTTP error: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error calling Claude API: {e}")
-            raise
-    
-    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=60))
-    async def call_openai_api(self, prompt: str, model: str = "gpt-4o", 
-                           max_tokens: int = 1000) -> Dict[Any, Any]:
-        """
-        Call the OpenAI API with retry logic for rate limits
-        
-        Args:
-            prompt: The user prompt to send to OpenAI
-            model: The OpenAI model to use (default: gpt-4o)
-            max_tokens: Maximum tokens in response
+            system_prompt: Optional system prompt to guide the model
+            model: OpenAI model to use (default: gpt-4o)
             
         Returns:
             Dict containing the API response
@@ -104,14 +49,21 @@ class APIClient:
             "Content-Type": "application/json"
         }
         
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+            
+        messages.append({"role": "user", "content": prompt})
+        
         data = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": max_tokens
         }
             
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 response = await client.post(
                     "https://api.openai.com/v1/chat/completions",
                     headers=headers,

@@ -14,13 +14,14 @@
 - [x] ファイル管理モジュール(`file_manager.py`)
 - [x] Streamlitメインアプリケーション(`app.py`)
 - [x] APIキーのUI入力方式
+- [x] LLMを全てOpenAIに統一
 
 ### タスク進捗
 1. ✓ プロジェクト構造とADR設計
 2. ✓ 入力フォーム実装（Streamlit）
-3. ✓ アウトライン生成機能（Claude API）
-4. ✓ 並行記事生成機能（Claude API並列実行）
-5. ✓ 並行画像生成機能（ChatGPT o3）
+3. ✓ アウトライン生成機能（GPT-4o）
+4. ✓ 並行記事生成機能（GPT-4o並列実行）
+5. ✓ 並行画像生成機能（DALL-E 3）
 6. ✓ 結合・プレビュー機能
 7. ✓ ダウンロード機能
 8. ✓ 進捗表示・エラーハンドリング実装
@@ -32,7 +33,9 @@ gazouseisei/
 ├── requirements.txt      # 依存ライブラリ
 ├── adr/                  # アーキテクチャ決定記録
 │   ├── ADR-20250517-01.md  # 基本アーキテクチャ設計
-│   └── ADR-20250517-02.md  # ユーザーインターフェース設計
+│   ├── ADR-20250517-02.md  # ユーザーインターフェース設計
+│   ├── ADR-20250517-03.md  # APIキー入力方式の変更
+│   └── ADR-20250517-04.md  # LLM提供元の統一（全てOpenAIに）
 ├── utils/
 │   ├── __init__.py
 │   ├── outline_generator.py    # アウトライン生成モジュール
@@ -53,8 +56,7 @@ streamlit run app.py
 ```
 
 2. ブラウザのUIから直接APIキーを入力
-   - Anthropic API キー（Claude API用）
-   - OpenAI API キー（GPT-4o および DALL-E 3用）
+   - OpenAI API キー（アウトライン生成、記事生成、画像生成の全てに使用）
 
 2. 依存関係のインストール
 ```bash

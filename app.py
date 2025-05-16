@@ -27,8 +27,6 @@ def init_session_state():
     """初期セッション状態を設定"""
     if 'api_client' not in st.session_state:
         st.session_state.api_client = None
-    if 'anthropic_api_key' not in st.session_state:
-        st.session_state.anthropic_api_key = ""
     if 'openai_api_key' not in st.session_state:
         st.session_state.openai_api_key = ""
     if 'file_manager' not in st.session_state:
@@ -55,6 +53,15 @@ def init_session_state():
         st.session_state.step_message = ""
     if 'log_messages' not in st.session_state:
         st.session_state.log_messages = []
+    # リアルタイム表示用の変数
+    if 'current_generating_section' not in st.session_state:
+        st.session_state.current_generating_section = None
+    if 'current_section_content' not in st.session_state:
+        st.session_state.current_section_content = ""
+    if 'generated_sections' not in st.session_state:
+        st.session_state.generated_sections = {}
+    if 'generated_images' not in st.session_state:
+        st.session_state.generated_images = {}
 
 def add_log(message: str):
     """ログメッセージを追加"""
@@ -70,7 +77,36 @@ def update_progress(progress: float, message: str):
     st.session_state.step_message = message
     add_log(message)
 
-async def generate_content(keyword: str, target_audience: str, image_style: str):
+def update_generating_section(section_index: int, heading: str, content: str = None):
+    """
+    現在生成中のセクション情報を更新
+    
+    Args:
+        section_index: セクションのインデックス
+        heading: セクションの見出し
+        content: 生成されたコンテンツ（あれば）
+    """
+    st.session_state.current_generating_section = (section_index, heading)
+    if content:
+        st.session_state.current_section_content = content
+        # 完成したセクションを保存
+        st.session_state.generated_sections[section_index] = (heading, content)
+        add_log(f"セクション {section_index + 1}: {heading} の生成完了")
+
+def update_generating_image(section_index: int, heading: str, image_path: str = None):
+    """
+    生成された画像情報を更新
+    
+    Args:
+        section_index: セクションのインデックス
+        heading: セクションの見出し
+        image_path: 生成された画像のパス（あれば）
+    """
+    if image_path and os.path.exists(image_path):
+        st.session_state.generated_images[section_index] = (heading, image_path)
+        add_log(f"セクション {section_index + 1}: {heading} の画像生成完了")
+
+async def generate_content(keyword: str, target_audience: str, image_style: str, num_main_headings: int = 30, num_sub_headings: int = 2):
     """
     コンテンツ生成のメインプロセス
     
@@ -87,17 +123,15 @@ async def generate_content(keyword: str, target_audience: str, image_style: str)
         
         # APIクライアントを初期化
         if not st.session_state.api_client:
-            anthropic_api_key = st.session_state.anthropic_api_key
             openai_api_key = st.session_state.openai_api_key
             
-            if not anthropic_api_key or not openai_api_key:
-                st.error("APIキーが入力されていません。両方のAPIキーを入力してください。")
+            if not openai_api_key:
+                st.error("OpenAI APIキーが入力されていません。APIキーを入力してください。")
                 add_log("エラー: APIキーが入力されていません")
                 st.session_state.is_generating = False
                 return
                 
             st.session_state.api_client = APIClient(
-                anthropic_api_key=anthropic_api_key,
                 openai_api_key=openai_api_key
             )
             add_log("APIクライアントを初期化しました")
@@ -110,7 +144,9 @@ async def generate_content(keyword: str, target_audience: str, image_style: str)
         st.session_state.outline = await outline_generator.generate_outline(
             keyword=keyword,
             target_audience=target_audience,
-            image_style=image_style
+            image_style=image_style,
+            num_main_headings=num_main_headings,
+            num_sub_headings=num_sub_headings
         )
         
         # アウトラインをファイルに保存
@@ -252,35 +288,23 @@ def main():
     with st.expander("APIキー設定", expanded=True):
         st.markdown(
             """
-            記事生成と画像生成のためにAPIキーが必要です。
-            - AnthropicのAPIキー（Claude API）：記事生成に使用
-            - OpenAIのAPIキー（GPT-4o + DALL-E 3）：画像生成に使用
+            記事生成と画像生成のためにOpenAI APIキーが必要です。
+            - OpenAIのAPIキー（GPT-4o）：記事生成に使用
+            - OpenAIのAPIキー（DALL-E 3）：画像生成に使用
             
             APIキーはセッション内でのみ保持され、サーバーに保存されません。
             """
         )
         
         # APIキー入力欄
-        col1, col2 = st.columns(2)
-        with col1:
-            anthropic_key = st.text_input(
-                "Anthropic API キー", 
-                type="password",
-                value=st.session_state.anthropic_api_key,
-                placeholder="sk-ant-...",
-                help="Claude APIのキー。Anthropicのウェブサイトから取得できます。"
-            )
-            st.session_state.anthropic_api_key = anthropic_key
-            
-        with col2:
-            openai_key = st.text_input(
-                "OpenAI API キー", 
-                type="password",
-                value=st.session_state.openai_api_key,
-                placeholder="sk-...", 
-                help="OpenAI APIのキー。OpenAIのウェブサイトから取得できます。"
-            )
-            st.session_state.openai_api_key = openai_key
+        openai_key = st.text_input(
+            "OpenAI API キー", 
+            type="password",
+            value=st.session_state.openai_api_key,
+            placeholder="sk-...", 
+            help="OpenAI APIのキー。OpenAIのウェブサイトから取得できます。GPT-4oとDALL-E 3の両方に使用されます。"
+        )
+        st.session_state.openai_api_key = openai_key
     
     # 入力フォーム
     with st.form("input_form"):
@@ -297,21 +321,53 @@ def main():
                 format_func=lambda x: "自然な表現 (Natural)" if x == "natural" else "鮮やかな表現 (Vivid)",
                 help="生成する画像のスタイル"
             )
+            
+        # テスト設定（見出し数の設定）
+        st.markdown("### テスト設定（オプション）")
+        st.markdown("記事の規模を調整するためのオプション設定です。テスト時に小さな値を指定すると処理時間を短縮できます。")
+        
+        test_col1, test_col2 = st.columns(2)
+        
+        with test_col1:
+            num_main_headings = st.number_input(
+                "大見出し数",
+                min_value=1,
+                max_value=50,
+                value=30,
+                step=1,
+                help="生成する大見出しの数（デフォルト: 30）。テスト時は小さな値（5-10）を推奨"
+            )
+        
+        with test_col2:
+            num_sub_headings = st.number_input(
+                "各大見出しの小見出し数",
+                min_value=1,
+                max_value=5,
+                value=2,
+                step=1,
+                help="各大見出しに対する小見出しの数（デフォルト: 2）"
+            )
         
         submit_button = st.form_submit_button("生成開始")
         
         if submit_button:
             if not keyword or not target_audience:
                 st.error("キーワードと想定読者は必須入力項目です")
-            elif not st.session_state.anthropic_api_key or not st.session_state.openai_api_key:
-                st.error("AnthropicとOpenAIの両方のAPIキーを入力してください")
+            elif not st.session_state.openai_api_key:
+                st.error("OpenAI APIキーを入力してください")
             elif st.session_state.is_generating:
                 st.warning("既に生成処理が実行中です")
             else:
                 st.session_state.is_generating = True
                 # 非同期で生成処理を開始
                 st.info("生成処理を開始します。このプロセスには時間がかかります。")
-                run_async(generate_content(keyword, target_audience, image_style))
+                run_async(generate_content(
+                    keyword=keyword, 
+                    target_audience=target_audience, 
+                    image_style=image_style,
+                    num_main_headings=int(num_main_headings),
+                    num_sub_headings=int(num_sub_headings)
+                ))
     
     # タブを作成
     tab1, tab2, tab3, tab4 = st.tabs(["進捗状況", "アウトライン", "プレビュー", "ログ"])
