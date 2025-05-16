@@ -24,7 +24,9 @@ class OutlineGenerator:
     async def generate_outline(self, 
                             keyword: str, 
                             target_audience: str, 
-                            image_style: str) -> Dict[str, List[Dict[str, Any]]]:
+                            image_style: str,
+                            num_main_headings: int = 30,
+                            num_sub_headings: int = 2) -> Dict[str, List[Dict[str, Any]]]:
         """
         Generate article outline with 30 main headings and 2 subheadings each
         
@@ -38,18 +40,20 @@ class OutlineGenerator:
         """
         logger.info(f"Generating outline for keyword: {keyword}")
         
-        # Create prompt for Claude API
-        system_prompt = """
+        # Create prompt for API
+        system_prompt = f"""
         You are an expert content strategist and SEO specialist. You will create a comprehensive outline for a very 
-        long-form article (over 300,000 words) that will thoroughly cover all aspects of the provided topic.
+        long-form article that will thoroughly cover all aspects of the provided topic.
+        
+        You will generate exactly {num_main_headings} main headings and exactly {num_sub_headings} subheadings under each main heading.
         """
         
         user_prompt = f"""
-        Create a comprehensive outline for a 300,000+ word article about "{keyword}" targeting {target_audience}.
+        Create a comprehensive outline for an article about "{keyword}" targeting {target_audience}.
         
         The outline should include:
-        - Exactly 30 main headings (numbered 1-30)
-        - Exactly 2 subheadings under each main heading
+        - Exactly {num_main_headings} main headings (numbered 1-{num_main_headings})
+        - Exactly {num_sub_headings} subheadings under each main heading
         
         Each heading should explore a different aspect of "{keyword}" and be designed to engage {target_audience}.
         
@@ -60,9 +64,9 @@ class OutlineGenerator:
             "outline": [
                 {{
                     "heading": "Main Heading 1",
-                    "subheadings": ["Subheading 1.1", "Subheading 1.2"]
+                    "subheadings": ["Subheading 1.1", "Subheading 1.2", ...]
                 }},
-                ...and so on for all 30 headings
+                ...and so on for all {num_main_headings} headings
             ]
         }}
         
@@ -70,19 +74,20 @@ class OutlineGenerator:
         """
         
         try:
-            # Call Claude API to generate outline
-            response = await self.api_client.call_claude_api(
+            # Call OpenAI API to generate outline
+            response = await self.api_client.call_text_generation_api(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=8000
+                max_tokens=8000,
+                model="gpt-4o"
             )
             
             # Extract and parse JSON from response
-            content = response.get('content', [])
-            if not content or not isinstance(content, list):
-                raise ValueError("Invalid response format from Claude API")
+            choices = response.get('choices', [])
+            if not choices or not isinstance(choices, list):
+                raise ValueError("Invalid response format from OpenAI API")
                 
-            text_content = content[0].get('text', '{}')
+            text_content = choices[0].get('message', {}).get('content', '{}')
             
             # Try to extract JSON from the text content
             try:
@@ -102,43 +107,43 @@ class OutlineGenerator:
                         json_str = json_match.group(1)
                         outline_data = json.loads(json_str)
                     else:
-                        raise ValueError("Could not extract JSON from Claude response")
+                        raise ValueError("Could not extract JSON from OpenAI response")
             
             # Validate the outline structure
             if "outline" not in outline_data or not isinstance(outline_data["outline"], list):
                 raise ValueError("Invalid outline structure in response")
                 
-            # Ensure exactly 30 main headings
-            if len(outline_data["outline"]) != 30:
-                logger.warning(f"Expected 30 headings, but got {len(outline_data['outline'])}. Adjusting...")
+            # Ensure exactly num_main_headings main headings
+            if len(outline_data["outline"]) != num_main_headings:
+                logger.warning(f"Expected {num_main_headings} headings, but got {len(outline_data['outline'])}. Adjusting...")
                 
-                # If fewer than 30, pad with defaults
-                if len(outline_data["outline"]) < 30:
-                    for i in range(len(outline_data["outline"]), 30):
+                # If fewer than expected, pad with defaults
+                if len(outline_data["outline"]) < num_main_headings:
+                    for i in range(len(outline_data["outline"]), num_main_headings):
+                        default_subheadings = [f"Aspect {j+1} of Topic {i+1}" for j in range(num_sub_headings)]
                         outline_data["outline"].append({
                             "heading": f"Additional Topic {i+1} on {keyword}",
-                            "subheadings": [f"Aspect 1 of Topic {i+1}", f"Aspect 2 of Topic {i+1}"]
+                            "subheadings": default_subheadings
                         })
-                # If more than 30, truncate
-                elif len(outline_data["outline"]) > 30:
-                    outline_data["outline"] = outline_data["outline"][:30]
+                # If more than expected, truncate
+                elif len(outline_data["outline"]) > num_main_headings:
+                    outline_data["outline"] = outline_data["outline"][:num_main_headings]
             
-            # Ensure each heading has exactly 2 subheadings
+            # Ensure each heading has exactly num_sub_headings subheadings
             for i, section in enumerate(outline_data["outline"]):
                 if "subheadings" not in section or not isinstance(section["subheadings"], list):
-                    outline_data["outline"][i]["subheadings"] = [
-                        f"Key Aspect of {section['heading']}", 
-                        f"Advanced Concepts in {section['heading']}"
-                    ]
-                elif len(section["subheadings"]) != 2:
-                    if len(section["subheadings"]) < 2:
-                        # Pad with defaults if fewer than 2
+                    # 何も設定されていない場合はデフォルトの小見出しを追加
+                    default_subheadings = [f"Aspect {j+1} of {section['heading']}" for j in range(num_sub_headings)]
+                    outline_data["outline"][i]["subheadings"] = default_subheadings
+                elif len(section["subheadings"]) != num_sub_headings:
+                    if len(section["subheadings"]) < num_sub_headings:
+                        # 少ない場合は追加
                         heading = section["heading"]
-                        while len(section["subheadings"]) < 2:
-                            section["subheadings"].append(f"Additional Aspect of {heading}")
-                    elif len(section["subheadings"]) > 2:
-                        # Truncate if more than 2
-                        section["subheadings"] = section["subheadings"][:2]
+                        while len(section["subheadings"]) < num_sub_headings:
+                            section["subheadings"].append(f"Additional Aspect {len(section['subheadings'])+1} of {heading}")
+                    elif len(section["subheadings"]) > num_sub_headings:
+                        # 多い場合は切り詰め
+                        section["subheadings"] = section["subheadings"][:num_sub_headings]
             
             logger.info(f"Successfully generated outline with {len(outline_data['outline'])} main headings")
             return outline_data
@@ -155,11 +160,12 @@ class OutlineGenerator:
                 ]
             }
             
-            # Generate 29 more default headings
-            for i in range(1, 30):
+            # Generate remaining default headings
+            for i in range(1, num_main_headings):
+                default_subheadings = [f"Key Concept {i}.{j+1}" for j in range(num_sub_headings)]
                 default_outline["outline"].append({
                     "heading": f"Topic {i}: Important Aspect of {keyword}",
-                    "subheadings": [f"Key Concept {i}.1", f"Key Concept {i}.2"]
+                    "subheadings": default_subheadings
                 })
                 
             return default_outline
