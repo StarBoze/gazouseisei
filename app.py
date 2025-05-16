@@ -368,23 +368,23 @@ def main():
                     num_main_headings=int(num_main_headings),
                     num_sub_headings=int(num_sub_headings)
                 ))
-    
+
     # タブを作成
     tab1, tab2, tab3, tab4 = st.tabs(["進捗状況", "アウトライン", "プレビュー", "ログ"])
-    
+
     # タブ1: 進捗状況
     with tab1:
         st.subheader("生成の進捗状況")
-        
+
         # 進捗バー
         if st.session_state.is_generating or st.session_state.step_progress > 0:
             st.progress(st.session_state.step_progress)
             st.write(st.session_state.step_message)
-            
+
             # 現在のステップを表示
             steps = ["outline", "article", "image", "combine", "package"]
             current_step_idx = steps.index(st.session_state.current_step) if st.session_state.current_step in steps else -1
-            
+
             cols = st.columns(len(steps))
             for i, (col, step) in enumerate(zip(cols, ["アウトライン", "記事", "画像", "結合", "パッケージ"])):
                 if i < current_step_idx:
@@ -393,7 +393,39 @@ def main():
                     col.info(step)
                 else:
                     col.write(step)
-        
+
+            # リアルタイム生成表示エリア
+            if st.session_state.current_generating_section:
+                section_idx, heading = st.session_state.current_generating_section
+                st.subheader(f"🔄 生成中: {heading}")
+
+                # プログレスバーでテキスト生成の進行状況を表現
+                if len(st.session_state.current_section_content) > 0:
+                    # コンテンツの文字数を元に進捗を表示（完全ではないが視覚的な指標として）
+                    content_len = len(st.session_state.current_section_content)
+                    # 3000文字程度が平均的なセクション長と仮定
+                    progress_ratio = min(1.0, content_len / 3000)
+                    st.progress(progress_ratio)
+
+                # 生成中のテキストをリアルタイム表示
+                if st.session_state.current_section_content:
+                    with st.expander("生成中の内容を表示", expanded=True):
+                        st.markdown(st.session_state.current_section_content)
+
+            # 生成済みセクションのリスト表示（折りたたみ式）
+            if st.session_state.generated_sections:
+                st.subheader("✅ 生成済みセクション")
+                for idx, (heading, content) in sorted(st.session_state.generated_sections.items()):
+                    with st.expander(f"セクション {idx+1}: {heading}"):
+                        st.markdown(content)
+
+                        # 関連する画像があれば表示
+                        if idx in st.session_state.generated_images:
+                            st.image(st.session_state.generated_images[idx])
+
+            # 生成済み画像のリスト表示
+            # ここでは画像のみの表示は行わず、セクション内に含める
+
         # 生成完了後、ダウンロードボタンを表示
         if st.session_state.zip_path and os.path.exists(st.session_state.zip_path):
             with open(st.session_state.zip_path, "rb") as file:

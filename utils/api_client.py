@@ -28,7 +28,8 @@ class APIClient:
     
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=60))
     async def call_text_generation_api(self, prompt: str, max_tokens: int = 4000, 
-                           system_prompt: Optional[str] = None, model: str = "gpt-4o") -> Dict[Any, Any]:
+                           system_prompt: Optional[str] = None, model: str = "gpt-4o",
+                           stream: bool = False, stream_callback = None) -> Dict[Any, Any]:
         """
         Call the OpenAI API for text generation with retry logic for rate limits
         
@@ -59,18 +60,65 @@ class APIClient:
         data = {
             "model": model,
             "messages": messages,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "stream": stream
         }
             
         try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                response = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers=headers,
-                    json=data
-                )
-                response.raise_for_status()
-                return response.json()
+            if stream:
+                # ストリーミングモードでAPI呼び出し
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    async with client.stream(
+                        "POST",
+                        "https://api.openai.com/v1/chat/completions",
+                        headers=headers,
+                        json=data,
+                        timeout=180.0
+                    ) as response:
+                        response.raise_for_status()
+                        
+                        # 累積レスポンスを格納
+                        full_response = {"choices": [{"message": {"content": ""}}]}
+                        collected_content = ""
+                        
+                        # ストリーミングレスポンスを処理
+                        async for chunk in response.aiter_lines():
+                            if not chunk.strip():
+                                continue
+                                
+                            if not chunk.startswith("data: "):
+                                continue
+                                
+                            if chunk.startswith("data: [DONE]"):
+                                break
+                                
+                            # データパートを抽出
+                            json_str = chunk[6:]
+                            try:
+                                chunk_data = json.loads(json_str)
+                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                
+                                if content:
+                                    collected_content += content
+                                    if stream_callback:
+                                        await stream_callback(content, collected_content)
+                            except Exception as e:
+                                logger.error(f"Error parsing streaming chunk: {e}")
+                        
+                        # 完全なレスポンスを構築
+                        full_response["choices"][0]["message"]["content"] = collected_content
+                        return full_response
+            else:
+                # 通常モードでAPI呼び出し
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers=headers,
+                        json=data
+                    )
+                    response.raise_for_status()
+                    return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.warning("Rate limit exceeded, retrying...")
